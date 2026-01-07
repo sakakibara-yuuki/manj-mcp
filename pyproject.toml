@@ -7,11 +7,18 @@ authors = [
     { name = "sakakibara yuuki", email = "sakakilabo0000@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "mcp[cli]>=1.21.2",
+]
 
 [project.scripts]
-manj-mcp = "manj_mcp:main"
+server = "manj_mcp:__main__"
 
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.5",
+]
