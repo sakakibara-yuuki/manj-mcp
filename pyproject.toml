@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "mcp[cli]>=1.21.2",
+    "meilisearch>=0.38.0",
 ]
 
 [project.scripts]
