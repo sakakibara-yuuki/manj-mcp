@@ -11,37 +11,90 @@ from mcp.server.fastmcp import FastMCP
 import meilisearch
 import os
 
+# https://www.meilisearch.com/docs/learn/chat/getting_started_with_chat : chat
+# https://www.meilisearch.com/docs/learn/chat/chat_tooling_reference : chat
+# https://www.meilisearch.com/docs/learn/ai_powered_search/getting_started_with_ai_search : ai_powerd_search
+# https://www.meilisearch.com/docs/learn/chat/conversational_search : conversational
+# https://www.meilisearch.com/docs/guides/ai/mcp#model-context-protocol-talk-to-meilisearch-with-claude-desktop : MCP
+# https://www.meilisearch.com/docs/learn/async/working_with_tasks :tasks
 
-# auth = TokenAuthBackend(token=["secret"])
+# localization
+# dumps
+
 mcp = FastMCP(
     "ManMCP",
-    # auth=auth,
     json_response=True,
     host="0.0.0.0",
     port=8080,
 )
 
 
-client = meilisearch.Client(
-    os.getenv("MEILI_HOST", "http://search:7700"), os.getenv("MEILI_MASTER_KEY")
-)
+MEILI_HOST = os.getenv("MEILI_HOST", "http://search:7700")
+MEILI_MASTER_KEY = os.getenv("MEILI_MASTER_KEY")
+client = meilisearch.Client(MEILI_HOST, MEILI_MASTER_KEY)
+
 index = client.index("man-pages")
 
 
-# LLMに使わせるツール。
+# MeiliSearchでman pagesを検索するツール
 @mcp.tool()
-def search_man_pages(query: str, limit: int = 10, offset: int = 0) -> dict:
+def search_man_pages(
+    query: str,
+    limit: int = 10,
+    offset: int = 0,
+    distro: str | None = None,
+    section: str | None = None,
+    command: str | None = None,
+    version: str | None = None,
+) -> dict:
+    """
+    Search man pages using MeiliSearch with optional filters.
+
+    Args:
+        query: Search query string (e.g., "grep", "ldd security", "pldd bugs")
+        limit: Maximum number of results to return (default: 10)
+        offset: Number of results to skip (default: 0)
+        distro: Filter by distribution (e.g., "debian", "alpine")
+        section: Filter by man section (e.g., "1", "8")
+        command: Filter by command name (e.g., "grep", "ldd")
+        version: Filter by distribution version (e.g., "12.12", "3.22.2")
+
+    Returns:
+        Dictionary containing search results with man page content
+    """
     search_params: dict[str, int | str] = {"limit": limit, "offset": offset}
+
+    # Build filter string (filterable attributes: distro, section, command, version)
+    filters = []
+    if distro:
+        filters.append(f"distro = '{distro}'")
+    if section:
+        filters.append(f"section = {section}")
+    if command:
+        filters.append(f"command = '{command}'")
+    if version:
+        filters.append(f"version = '{version}'")
+
+    if filters:
+        search_params["filter"] = " AND ".join(filters)
+
+    # Debug logging
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Search params: {search_params}")
+
     return index.search(query, search_params)
 
 
-# @man://diffman-git を読んで。のようにすると、読んでくれる。LLMに読ませるためのresource.
+# @man://diffman-git を読んで。のようにすると、読んでくれる。
+# LLMに読ませるためのresource.
 @mcp.resource("man://{command}")
 def get_command_options(command: str):
     return index.search(command)
 
 
-# # @greeting://fuga を読んで。のようにすると、読んでくれる。LLMに読ませるresource.
+# @greeting://fuga を読んで。のようにすると、読んでくれる。
+# LLMに読ませるresource.
 # @mcp.resource("greeting://{name}")
 # def get_greeting(name: str) -> str:
 #     return f"Hello {name}"
