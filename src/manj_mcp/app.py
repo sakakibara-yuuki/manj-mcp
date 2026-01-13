@@ -10,6 +10,7 @@ from mcp.server.fastmcp import FastMCP
 # from mcp.server.fastmcp.auth import TokenAuthBackend
 import meilisearch
 import os
+import manj_ast
 
 # https://www.meilisearch.com/docs/learn/chat/getting_started_with_chat : chat
 # https://www.meilisearch.com/docs/learn/chat/chat_tooling_reference : chat
@@ -174,3 +175,147 @@ def suggest_command_pipeline(task_description: str) -> list[dict]:
 Remember: Search multiple times, think step by step, and prioritize safety!""",
         }
     ]
+
+
+# Man page parsing tools using manj-ast-py
+
+
+@mcp.tool()
+def parse_man_to_json(file_path: str) -> dict:
+    """
+    Parse a roff/man format file and convert it to unist-format JSON.
+
+    This tool converts man pages (both compressed .gz and uncompressed formats)
+    into structured JSON using the unist (Universal Syntax Tree) format.
+    The resulting JSON can be used for further processing, analysis, or conversion.
+
+    Args:
+        file_path: Path to the roff/man file (supports .gz compressed files)
+                  e.g., "/usr/share/man/man1/ls.1.gz" or "ls.1"
+
+    Returns:
+        Dictionary containing the unist-format JSON structure with:
+        - type: node type (root, section, paragraph, text, etc.)
+        - children: nested nodes
+        - value: text content (for text nodes)
+        - Additional metadata depending on node type
+
+    Raises:
+        Exception: If the file cannot be found, read, or parsed
+    """
+    json_str = manj_ast.roff_to_json(file_path)
+    import json
+
+    return json.loads(json_str)
+
+
+@mcp.tool()
+def convert_json_to_roff(json_data: dict | str) -> str:
+    """
+    Convert unist-format JSON back to roff format.
+
+    This tool takes structured JSON (in unist format) and converts it back
+    to roff markup that can be displayed with man, rendered to other formats,
+    or saved as a man page file.
+
+    Args:
+        json_data: Either a dictionary containing unist-format JSON structure,
+                   or a JSON string representing the structure
+
+    Returns:
+        String containing roff format markup (e.g., ".TH COMMAND 1\\n.SH NAME\\n...")
+
+    Raises:
+        Exception: If the JSON structure is invalid or cannot be converted
+    """
+    import json
+
+    if isinstance(json_data, dict):
+        json_str = json.dumps(json_data)
+    else:
+        json_str = json_data
+
+    return manj_ast.json_to_roff(json_str)
+
+
+@mcp.tool()
+def list_man_sections(json_data: dict | str) -> list[str]:
+    """
+    List all section headers (SH) and subsections (SS) from a man page JSON.
+
+    This tool extracts all section and subsection names from a parsed man page,
+    making it easy to see the structure and navigate to specific parts.
+    Subsections are indented with "  " prefix to show hierarchy.
+
+    Common man page sections include:
+    - NAME: Command name and brief description
+    - SYNOPSIS: Command syntax
+    - DESCRIPTION: Detailed description
+    - OPTIONS: Command-line options
+    - EXAMPLES: Usage examples
+    - SEE ALSO: Related commands
+    - BUGS: Known issues
+    - AUTHOR: Author information
+
+    Args:
+        json_data: Either a dictionary containing unist-format JSON structure,
+                   or a JSON string representing the structure from parse_man_to_json
+
+    Returns:
+        List of section names. Subsections (SS) are prefixed with "  " (two spaces)
+        Example: ["NAME", "SYNOPSIS", "DESCRIPTION", "  Basic Usage", "  Advanced Usage", "OPTIONS"]
+
+    Raises:
+        Exception: If the JSON structure is invalid
+    """
+    import json
+
+    if isinstance(json_data, dict):
+        json_str = json.dumps(json_data)
+    else:
+        json_str = json_data
+
+    return manj_ast.list_sections_py(json_str)
+
+
+@mcp.tool()
+def extract_man_section(json_data: dict | str, section_names: list[str]) -> str:
+    """
+    Extract specific sections from a man page and convert them to roff format.
+
+    This tool is useful for extracting only relevant parts of a man page,
+    such as just the OPTIONS section, or combining EXAMPLES with DESCRIPTION.
+    The output is in roff format and can be piped to man or further processed.
+
+    Args:
+        json_data: Either a dictionary containing unist-format JSON structure,
+                   or a JSON string from parse_man_to_json
+        section_names: List of section/subsection names to extract
+                      Section names are case-insensitive and whitespace-flexible
+                      Examples: ["OPTIONS"], ["DESCRIPTION", "EXAMPLES"],
+                               ["Basic Usage"] (for subsections)
+
+    Returns:
+        String containing roff format markup with only the specified sections
+
+    Raises:
+        Exception: If the JSON is invalid or no matching sections are found
+
+    Examples:
+        # Extract just the OPTIONS section
+        extract_man_section(json_data, ["OPTIONS"])
+
+        # Extract multiple sections
+        extract_man_section(json_data, ["SYNOPSIS", "DESCRIPTION", "EXAMPLES"])
+
+        # Extract a subsection
+        extract_man_section(json_data, ["Basic Usage"])
+    """
+    import json
+
+    if isinstance(json_data, dict):
+        json_str = json.dumps(json_data)
+    else:
+        json_str = json_data
+
+    return manj_ast.extract_section(json_str, section_names)
