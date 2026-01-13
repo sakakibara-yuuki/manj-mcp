@@ -24,3 +24,6 @@ build-backend = "setuptools.build_meta"
 dev = [
     "ruff>=0.14.5",
 ]
+
+[tool.uv.sources]
+manj-ast-py = { path = "../manj-ast-py", editable = true }
