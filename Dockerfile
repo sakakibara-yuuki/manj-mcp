@@ -14,14 +14,14 @@ COPY manj-db /manj-db
 COPY manj-mcp /app
 WORKDIR /app
 
-# Install the pre-built manj-ast-py wheel
+# Select the appropriate wheel file for the target architecture
 ARG TARGETARCH
 RUN case "$TARGETARCH" in \
     amd64) WHEEL_ARCH=x86_64 ;; \
     arm64) WHEEL_ARCH=aarch64 ;; \
     *) echo "Unsupported architecture: $TARGETARCH" && exit 1 ;; \
     esac && \
-    uv pip install --system wheels/*${WHEEL_ARCH}.whl
+    cp wheels/manj_ast_py-0.1.0-cp312-abi3-manylinux_2_34_${WHEEL_ARCH}.whl wheels/manj_ast_py.whl
 
 # Install application dependencies (including manj-db in editable mode)
 RUN uv sync --frozen --no-cache

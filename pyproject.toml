@@ -27,7 +27,4 @@ dev = [
 ]
 
 [tool.uv.sources]
-manj-ast-py = [
-    { path = "wheels/manj_ast_py-0.1.0-cp312-abi3-manylinux_2_34_x86_64.whl", marker = "platform_machine == 'x86_64'" },
-    { path = "wheels/manj_ast_py-0.1.0-cp312-abi3-manylinux_2_34_aarch64.whl", marker = "platform_machine == 'aarch64'" },
-]
+manj-ast-py = { path = "wheels/manj_ast_py.whl" }
