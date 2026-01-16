@@ -6,12 +6,15 @@ RUN apt-get update && \
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# Copy manj-db and manj-collector source so path in pyproject.toml is valid
+# Copy manj-db source so path in pyproject.toml is valid
 COPY manj-db /manj-db
 
 # Copy the application
 COPY manj-mcp /app
 WORKDIR /app
+
+# Install the pre-built manj-ast-py wheel
+RUN uv pip install --system wheels/*x86_64.whl
 
 # Install application dependencies (including manj-db in editable mode)
 RUN uv sync --frozen --no-cache

@@ -11,6 +11,7 @@ dependencies = [
     "mcp[cli]>=1.21.2",
     "meilisearch>=0.38.0",
     "manj-ast-py",
+    "google-cloud-storage>=2.18.2",
 ]
 
 [project.scripts]
@@ -26,4 +27,4 @@ dev = [
 ]
 
 [tool.uv.sources]
-manj-ast-py = { path = "../manj-ast-py", editable = true }
+manj-ast-py = { path = "wheels/manj_ast_py-0.1.0-cp312-abi3-manylinux_2_34_x86_64.whl" }

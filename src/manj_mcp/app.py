@@ -11,6 +11,11 @@ from mcp.server.fastmcp import FastMCP
 import meilisearch
 import os
 import manj_ast
+from google.cloud import storage
+import gzip
+import tempfile
+import subprocess
+import json
 
 # https://www.meilisearch.com/docs/learn/chat/getting_started_with_chat : chat
 # https://www.meilisearch.com/docs/learn/chat/chat_tooling_reference : chat
@@ -35,6 +40,26 @@ MEILI_MASTER_KEY = os.getenv("MEILI_MASTER_KEY")
 client = meilisearch.Client(MEILI_HOST, MEILI_MASTER_KEY)
 
 index = client.index("man-pages")
+
+# Google Cloud Storage client
+_storage_client: storage.Client | None = None
+
+
+def get_storage_client() -> storage.Client:
+    """Get or create a singleton Google Cloud Storage client."""
+    global _storage_client
+    if _storage_client is None:
+        _storage_client = storage.Client()
+    return _storage_client
+
+
+def get_bucket() -> storage.Bucket:
+    """Get the GCS bucket for man pages."""
+    client = get_storage_client()
+    bucket_name = os.getenv("BUCKET_NAME")
+    if not bucket_name:
+        raise ValueError("BUCKET_NAME environment variable is not set")
+    return client.get_bucket(bucket_name)
 
 
 # MeiliSearchでman pagesを検索するツール
@@ -178,144 +203,138 @@ Remember: Search multiple times, think step by step, and prioritize safety!""",
 
 
 # Man page parsing tools using manj-ast-py
+def get_man_pages_json(results):
+    hit = results["hits"][0]
+    language = "en"
+    blob_path = f"latest/{hit['distro']}/{hit['version']}/{language}/man/man{hit['section']}/{hit['command']}.{hit['section']}.gz"
+
+    # Download from GCS
+    bucket = get_bucket()
+    blob = bucket.get_blob(blob_path)
+    if blob is None:
+        raise Exception(f"Man page file not found in storage: {blob_path}")
+
+    # Download to memory and decompress
+    compressed_data = blob.download_as_bytes()
+    decompressed_data = gzip.decompress(compressed_data)
+
+    # Use a temporary file with auto-deletion
+    with tempfile.NamedTemporaryFile(mode="wb", suffix=".man", delete=True) as tmp:
+        tmp.write(decompressed_data)
+        tmp.flush()
+
+        # Parse to JSON and extract sections
+        json_str = manj_ast.roff_to_json(tmp.name)
+        # sections = manj_ast.list_sections_py(json_str)
+    return json_str
 
 
 @mcp.tool()
-def parse_man_to_json(file_path: str) -> dict:
+def list_man_page_sections(
+    command: str,
+    distro: str | None = None,
+    section: str | None = None,
+) -> list[str]:
     """
-    Parse a roff/man format file and convert it to unist-format JSON.
+    List all section headers (SH) and subsections (SS) from a man page.
 
-    This tool converts man pages (both compressed .gz and uncompressed formats)
-    into structured JSON using the unist (Universal Syntax Tree) format.
-    The resulting JSON can be used for further processing, analysis, or conversion.
+    This tool searches for a man page by command name, downloads it from
+    Google Cloud Storage, and extracts all section names. Useful for exploring
+    the structure of a man page before extracting specific sections.
+
+    Common sections: NAME, SYNOPSIS, DESCRIPTION, OPTIONS, EXAMPLES, SEE ALSO, BUGS
 
     Args:
-        file_path: Path to the roff/man file (supports .gz compressed files)
-                  e.g., "/usr/share/man/man1/ls.1.gz" or "ls.1"
+        command: Command name to look up (e.g., "ls", "grep")
+        distro: Optional distribution filter (e.g., "debian", "alpine")
+        section: Optional man section filter (e.g., "1", "8")
 
     Returns:
-        Dictionary containing the unist-format JSON structure with:
-        - type: node type (root, section, paragraph, text, etc.)
-        - children: nested nodes
-        - value: text content (for text nodes)
-        - Additional metadata depending on node type
+        List of section names. Subsections are prefixed with "  " (two spaces).
+        Example: ["NAME", "SYNOPSIS", "DESCRIPTION", "  Basic Usage", "OPTIONS"]
 
     Raises:
-        Exception: If the file cannot be found, read, or parsed
+        Exception: If man page not found or cannot be parsed
     """
-    json_str = manj_ast.roff_to_json(file_path)
-    import json
+    # Search for the man page in MeiliSearch
+    search_params: dict[str, int | str] = {"limit": 1}
+    filters = [f"command = '{command}'"]
+    if distro:
+        filters.append(f"distro = '{distro}'")
+    if section:
+        filters.append(f"section = {section}")
+    search_params["filter"] = " AND ".join(filters)
 
-    return json.loads(json_str)
+    results = index.search("", search_params)
+    if not results["hits"]:
+        raise Exception(
+            f"Man page not found: {command}"
+            + (f" (distro={distro})" if distro else "")
+            + (f" (section={section})" if section else "")
+        )
+
+    json_str = get_man_pages_json(results)
+    sections = manj_ast.list_sections_py(json_str)
+    return sections
 
 
 @mcp.tool()
-def convert_json_to_roff(json_data: dict | str) -> str:
+def get_man_page_section(
+    command: str,
+    section_names: list[str],
+    distro: str | None = None,
+    section: str | None = None,
+) -> str:
     """
-    Convert unist-format JSON back to roff format.
+    Extract and display specific sections from a man page.
 
-    This tool takes structured JSON (in unist format) and converts it back
-    to roff markup that can be displayed with man, rendered to other formats,
-    or saved as a man page file.
+    This tool searches for a man page, downloads it from Google Cloud Storage,
+    extracts the specified sections, and formats them for display using col -b.
 
     Args:
-        json_data: Either a dictionary containing unist-format JSON structure,
-                   or a JSON string representing the structure
+        command: Command name to look up (e.g., "ls", "grep")
+        section_names: List of section names to extract (e.g., ["OPTIONS"], ["DESCRIPTION", "EXAMPLES"])
+        distro: Optional distribution filter (e.g., "debian", "alpine")
+        section: Optional man section filter (e.g., "1", "8")
 
     Returns:
-        String containing roff format markup (e.g., ".TH COMMAND 1\\n.SH NAME\\n...")
+        Formatted text content of the requested sections
 
     Raises:
-        Exception: If the JSON structure is invalid or cannot be converted
-    """
-    import json
-
-    if isinstance(json_data, dict):
-        json_str = json.dumps(json_data)
-    else:
-        json_str = json_data
-
-    return manj_ast.json_to_roff(json_str)
-
-
-@mcp.tool()
-def list_man_sections(json_data: dict | str) -> list[str]:
-    """
-    List all section headers (SH) and subsections (SS) from a man page JSON.
-
-    This tool extracts all section and subsection names from a parsed man page,
-    making it easy to see the structure and navigate to specific parts.
-    Subsections are indented with "  " prefix to show hierarchy.
-
-    Common man page sections include:
-    - NAME: Command name and brief description
-    - SYNOPSIS: Command syntax
-    - DESCRIPTION: Detailed description
-    - OPTIONS: Command-line options
-    - EXAMPLES: Usage examples
-    - SEE ALSO: Related commands
-    - BUGS: Known issues
-    - AUTHOR: Author information
-
-    Args:
-        json_data: Either a dictionary containing unist-format JSON structure,
-                   or a JSON string representing the structure from parse_man_to_json
-
-    Returns:
-        List of section names. Subsections (SS) are prefixed with "  " (two spaces)
-        Example: ["NAME", "SYNOPSIS", "DESCRIPTION", "  Basic Usage", "  Advanced Usage", "OPTIONS"]
-
-    Raises:
-        Exception: If the JSON structure is invalid
-    """
-    import json
-
-    if isinstance(json_data, dict):
-        json_str = json.dumps(json_data)
-    else:
-        json_str = json_data
-
-    return manj_ast.list_sections_py(json_str)
-
-
-@mcp.tool()
-def extract_man_section(json_data: dict | str, section_names: list[str]) -> str:
-    """
-    Extract specific sections from a man page and convert them to roff format.
-
-    This tool is useful for extracting only relevant parts of a man page,
-    such as just the OPTIONS section, or combining EXAMPLES with DESCRIPTION.
-    The output is in roff format and can be piped to man or further processed.
-
-    Args:
-        json_data: Either a dictionary containing unist-format JSON structure,
-                   or a JSON string from parse_man_to_json
-        section_names: List of section/subsection names to extract
-                      Section names are case-insensitive and whitespace-flexible
-                      Examples: ["OPTIONS"], ["DESCRIPTION", "EXAMPLES"],
-                               ["Basic Usage"] (for subsections)
-
-    Returns:
-        String containing roff format markup with only the specified sections
-
-    Raises:
-        Exception: If the JSON is invalid or no matching sections are found
+        Exception: If man page not found, sections not found, or cannot be parsed
 
     Examples:
-        # Extract just the OPTIONS section
-        extract_man_section(json_data, ["OPTIONS"])
+        # Get just the OPTIONS section
+        get_man_page_section("ls", ["OPTIONS"])
 
-        # Extract multiple sections
-        extract_man_section(json_data, ["SYNOPSIS", "DESCRIPTION", "EXAMPLES"])
-
-        # Extract a subsection
-        extract_man_section(json_data, ["Basic Usage"])
+        # Get multiple sections
+        get_man_page_section("grep", ["DESCRIPTION", "EXAMPLES"])
     """
-    import json
+    # Search for the man page in MeiliSearch
+    search_params: dict[str, int | str] = {"limit": 1}
+    filters = [f"command = '{command}'"]
+    if distro:
+        filters.append(f"distro = '{distro}'")
+    if section:
+        filters.append(f"section = {section}")
+    search_params["filter"] = " AND ".join(filters)
 
-    if isinstance(json_data, dict):
-        json_str = json.dumps(json_data)
-    else:
-        json_str = json_data
+    results = index.search("", search_params)
+    if not results["hits"]:
+        raise Exception(
+            f"Man page not found: {command}"
+            + (f" (distro={distro})" if distro else "")
+            + (f" (section={section})" if section else "")
+        )
 
-    return manj_ast.extract_section(json_str, section_names)
+    json_str = get_man_pages_json(results)
+    roff_text = manj_ast.extract_section(json_str, section_names)
+    # Format with col -b
+    result = subprocess.run(
+        ["col", "-b"],
+        input=roff_text.encode(),
+        capture_output=True,
+        check=True,
+    )
+
+    return result.stdout.decode()
