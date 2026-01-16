@@ -331,13 +331,30 @@ def get_man_page_section(
     json_str = get_man_pages_json(hit)
     roff_text = manj_ast.extract_section(json_str, section_names)
 
-    # Format with man -l - | col -b
+    # Debug: Log the roff text length and first 500 chars
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Extracted roff text length: {len(roff_text)}")
+    logger.info(f"Roff text preview: {roff_text[:500]}")
+
+    # Format with mandoc | col -b
     man_result = subprocess.run(
-        ["mandoc", "-c", "-"],
+        ["mandoc", "-c"],
         input=roff_text.encode(),
         capture_output=True,
-        check=True,
+        check=False,  # Don't raise exception immediately
     )
+
+    # Debug: Log mandoc result
+    logger.info(f"mandoc exit code: {man_result.returncode}")
+    if man_result.stderr:
+        logger.error(f"mandoc stderr: {man_result.stderr.decode()}")
+
+    if man_result.returncode != 0:
+        raise Exception(
+            f"mandoc failed with exit code {man_result.returncode}: {man_result.stderr.decode()}"
+        )
+
     col_result = subprocess.run(
         ["col", "-b"],
         input=man_result.stdout,
