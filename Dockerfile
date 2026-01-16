@@ -24,7 +24,7 @@ RUN case "$TARGETARCH" in \
     cp wheels/manj_ast_py-0.1.0-cp312-abi3-manylinux_2_34_${WHEEL_ARCH}.whl wheels/manj_ast_py.whl
 
 # Install application dependencies (including manj-db in editable mode)
-RUN uv sync --frozen --no-cache
+RUN uv sync --no-cache
 
 # Run the application
 CMD ["uv", "run", "server"]
