@@ -24,7 +24,7 @@ RUN case "$TARGETARCH" in \
     sed -i "s/x86_64/${WHEEL_ARCH}/g" pyproject.toml
 
 # Install application dependencies (including manj-db in editable mode)
-RUN uv sync --frozen --no-cache
+RUN uv sync --no-cache
 
 # Run the application
 CMD ["uv", "run", "server"]
