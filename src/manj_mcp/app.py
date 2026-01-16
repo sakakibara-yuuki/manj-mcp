@@ -203,8 +203,7 @@ Remember: Search multiple times, think step by step, and prioritize safety!""",
 
 
 # Man page parsing tools using manj-ast-py
-def get_man_pages_json(results):
-    hit = results["hits"][0]
+def get_man_pages_json(hit):
     language = "en"
     blob_path = f"latest/{hit['distro']}/{hit['version']}/{language}/man/man{hit['section']}/{hit['command']}.{hit['section']}.gz"
 
@@ -272,8 +271,9 @@ def list_man_page_sections(
             + (f" (distro={distro})" if distro else "")
             + (f" (section={section})" if section else "")
         )
+    hit = results["hits"][0]
 
-    json_str = get_man_pages_json(results)
+    json_str = get_man_pages_json(hit)
     sections = manj_ast.list_sections_py(json_str)
     return sections
 
@@ -326,15 +326,23 @@ def get_man_page_section(
             + (f" (distro={distro})" if distro else "")
             + (f" (section={section})" if section else "")
         )
+    hit = results["hits"][0]
 
-    json_str = get_man_pages_json(results)
+    json_str = get_man_pages_json(hit)
     roff_text = manj_ast.extract_section(json_str, section_names)
-    # Format with col -b
-    result = subprocess.run(
-        ["col", "-b"],
+
+    # Format with man -l - | col -b
+    man_result = subprocess.run(
+        ["mandoc", "-c", "-"],
         input=roff_text.encode(),
         capture_output=True,
         check=True,
     )
+    col_result = subprocess.run(
+        ["col", "-b"],
+        input=man_result.stdout,
+        capture_output=True,
+        check=True,
+    )
 
-    return result.stdout.decode()
+    return col_result.stdout.decode()

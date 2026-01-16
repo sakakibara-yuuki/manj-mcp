@@ -1,6 +1,7 @@
 FROM python:3.12-slim
 
-RUN apt-get update && \
+RUN apt-get update && apt-get -y upgrade && \
+    apt-get -y install bsdmainutils mandoc && \
     rm -rf /var/lib/apt/lists/*
 
 # Install uv
