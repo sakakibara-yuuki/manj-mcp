@@ -8,10 +8,12 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "mcp[cli]>=1.21.2",
+    "mcp[cli]>=1.25.0",
     "meilisearch>=0.38.0",
     "manj-ast-py",
     "google-cloud-storage>=2.18.2",
+    "starlette>=0.50.0",
+    "uvicorn>=0.38.0",
 ]
 
 [project.scripts]

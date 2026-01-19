@@ -8,6 +8,7 @@
 from mcp.server.fastmcp import FastMCP
 
 # from mcp.server.fastmcp.auth import TokenAuthBackend
+from starlette.responses import JSONResponse
 import meilisearch
 import os
 import manj_ast
@@ -16,6 +17,9 @@ import gzip
 import tempfile
 import subprocess
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 # https://www.meilisearch.com/docs/learn/chat/getting_started_with_chat : chat
 # https://www.meilisearch.com/docs/learn/chat/chat_tooling_reference : chat
@@ -27,12 +31,7 @@ import json
 # localization
 # dumps
 
-mcp = FastMCP(
-    "ManMCP",
-    json_response=True,
-    host="0.0.0.0",
-    port=8080,
-)
+mcp = FastMCP("ManMCP", json_response=True, stateless_http=True)
 
 
 MEILI_HOST = os.getenv("MEILI_HOST", "http://search:7700")
@@ -60,6 +59,10 @@ def get_bucket() -> storage.Bucket:
     if not bucket_name:
         raise ValueError("BUCKET_NAME environment variable is not set")
     return client.get_bucket(bucket_name)
+
+
+async def health_check(request):
+    return JSONResponse({"status": "ok", "message": "MCP server is running"})
 
 
 # MeiliSearchでman pagesを検索するツール
@@ -116,40 +119,35 @@ def search_man_pages(
             "semanticRatio": semantic_ratio,
         }
 
-    # Debug logging
-    import logging
-
-    logger = logging.getLogger(__name__)
     logger.info(f"Search params: {search_params}")
 
-    return index.search(query, search_params)
+    results = index.search(query, search_params)
+
+    # Extract only necessary fields to reduce response size
+    filtered_hits = []
+    for hit in results.get("hits", []):
+        filtered_hits.append(
+            {
+                "command": hit.get("command"),
+                "section": hit.get("section"),
+                "distro": hit.get("distro"),
+                "version": hit.get("version"),
+                "description": hit.get("description"),
+                "_rankingScore": hit.get("_rankingScore", 0),
+            }
+        )
+
+    return {
+        "hits": filtered_hits,
+        "query": results.get("query"),
+        "processingTimeMs": results.get("processingTimeMs"),
+        "limit": results.get("limit"),
+        "offset": results.get("offset"),
+        "estimatedTotalHits": results.get("estimatedTotalHits"),
+    }
 
 
-# @man://diffman-git を読んで。のようにすると、読んでくれる。
-# LLMに読ませるためのresource.
-# @mcp.resource("man://{command}")
-# def get_command_options(command: str):
-#     return index.search(command)
-
-
-# @greeting://fuga を読んで。のようにすると、読んでくれる。
-# LLMに読ませるresource.
-# @mcp.resource("greeting://{name}")
-# def get_greeting(name: str) -> str:
-#     return f"Hello {name}"
-
-
-# LLMに送るprompt を作成する。これはその雛形。
-# つまり、これはLLM前の仕組み。
-# @mcp.prompt()
-# def greet_user(name: str, style: str = "friendly") -> str:
-#     styles = {
-#         "friendly": "Please write a warm, friendly greeting",
-#         "formal": "Please write a formal, professional greeting",
-#         "casual": "Please write a casual, relaxed greeting",
-#     }
-#
-#     return f"{styles.get(style, styles['friendly'])} for someone named {name}."
+# TODO: mcp request機能をmcpにつけるのはどうか？
 
 
 # Natural language to command pipeline prompt
@@ -332,8 +330,6 @@ def get_man_page_section(
     roff_text = manj_ast.extract_section(json_str, section_names)
 
     # Debug: Log the roff text length and first 500 chars
-    import logging
-    logger = logging.getLogger(__name__)
     logger.info(f"Extracted roff text length: {len(roff_text)}")
     logger.info(f"Roff text preview: {roff_text[:500]}")
 
