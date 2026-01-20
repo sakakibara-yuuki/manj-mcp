@@ -32,7 +32,13 @@ logger = logging.getLogger(__name__)
 # localization
 # dumps
 
-mcp = FastMCP("ManMCP", json_response=True, stateless_http=True)
+mcp = FastMCP(
+    "ManMCP",
+    json_response=True,
+    host="0.0.0.0",
+    port=8080,
+)
+# mcp = FastMCP("ManMCP")
 
 
 MEILI_HOST = os.getenv("MEILI_HOST", "http://search:7700")
