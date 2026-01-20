@@ -10,18 +10,20 @@
 
 
 import uvicorn
-from starlette.applications import Starlette
+# from starlette.applications import Starlette
+# from starlette.routing import Route, Mount
+from .app import mcp
 
-from starlette.routing import Route, Mount
-from .app import mcp, health_check
+# app = Starlette(
+#     routes=[
+#         Route("/health-check", health_check),
+#         Mount(
+#             # "/mcp", mcp.streamable_http_app()
+#             "/mcp", mcp
+#         )
+#     ]
+# )
 
-app = Starlette(
-    routes=[
-        Route("/health-check", health_check),
-        Mount(
-            "/mcp", mcp.streamable_http_app()
-        )
-    ]
-)
+app = mcp.streamable_http_app()
 
 uvicorn.run(app, host="0.0.0.0", port=8080)
